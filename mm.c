@@ -28,7 +28,7 @@ team_t team = {
     /* First member's full name */
     "Harry Bovik",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "songhyeongjin",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -49,6 +49,7 @@ team_t team = {
  */
 int mm_init(void)
 {
+    // this is implicit_list
     return 0;
 }
 
