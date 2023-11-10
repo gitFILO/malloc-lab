@@ -49,6 +49,7 @@ team_t team = {
  */
 int mm_init(void)
 {
+    // this is main
     return 0;
 }
 
