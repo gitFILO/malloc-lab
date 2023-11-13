@@ -47,7 +47,7 @@ static void place(void *bp, size_t asize);
 static void splice_free_block(void *bp); // 가용 리스트에서 제거
 static void add_free_block(void *bp);    // 가용 리스트에 추가
 
-int mm_init(void)
+int mm_init(void) // segregated list 
 {
     // 초기 힙 생성
     if ((free_listp = mem_sbrk(8 * WSIZE)) == (void *)-1) // 8워드 크기의 힙 생성, free_listp에 힙의 시작 주소값 할당(가용 블록만 추적)
