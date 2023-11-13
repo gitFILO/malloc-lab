@@ -49,7 +49,7 @@ team_t team = {
  */
 int mm_init(void)
 {
-    // this is main
+    // this is explicit!
     return 0;
 }
 
