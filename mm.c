@@ -1,53 +1,18 @@
-/*
-* mm-implicit.c -  Simple allocator based on implicit free lists,
-*                  first fit placement, and boundary tag coalescing.
-*
-* Each block has header and footer of the form:
-*
-*      31                     3  2  1  0
-*      -----------------------------------
-*     | s  s  s  s  ... s  s  s  0  0  a/f
-*      -----------------------------------
-*
-* where s are the meaningful size bits and a/f is set
-* iff the block is allocated. The list has the following form:
-*
-* begin                                                          end
-* heap                                                           heap
-*  -----------------------------------------------------------------
-* |  pad   | hdr(8:a) | ftr(8:a) | zero or more usr blks | hdr(8:a) |
-*  -----------------------------------------------------------------
-*          |       prologue      |                       | epilogue |
-*          |         block       |                       | block    |
-*
-* The allocated prologue and epilogue blocks are overhead that
-* eliminate edge conditions during coalescing.
-*/
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include "mm.h"
 #include "memlib.h"
-//#define VERBOSE 1
-//#define checkheap  
-//#define printre
-//#define printalloc
-/*
-* If NEXT_FIT defined use next fit search, else use first fit search
-*/
-//#define NEXT_FIT
 
 /* Team structure */
 team_t team = {
-
-	"implicit next fit",
-
-	"1160610505"," Gan Yao",
+	"rbtree",
+	"Hyeongjin Song",
+	"x2xgudwls@gmail.com",
 	"",""
 };
-/* $begin mallocmacros */
-/* Basic constants and macros */
+
 #define WSIZE       4       /* word size (bytes) */  
 #define DSIZE       8       /* doubleword size (bytes) */
 #define CHUNKSIZE  (1<<12)  /* initial heap size (bytes) */
@@ -66,7 +31,6 @@ typedef unsigned long long block_t; // 8 bytes -> 2 words!
 #define GET_ADDRESS(p) ((block_t *)(p))
 #define PUT(p, val)  (*(size_t *)(p) = (val))  
 #define PUT_ADDRESS(p,val) (*(block_t *)(p) = (block_t)(val)) 
-//#define PUT_ADDRESS1(p,val) ((block_t)(p) = (block_t)(val)) 
 /* Read the size and allocated fields from address p */
 #define GET_SIZE(p)  (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
@@ -117,7 +81,6 @@ static void *coalesce(void *bp);  /* called in free, find_fit_in_tree and extend
 
 int mm_init(void)
 {
-	//printf("\nmm_init in\n");
 	char * bp = NULL;
 	/* create the initial empty heap */
 	if ((heap_listp = mem_sbrk(4*WSIZE+3 * DSIZE)) == NULL)
@@ -125,7 +88,6 @@ int mm_init(void)
 	/* initialize tree root */
 	/* put tree root size */
 	PUT(heap_listp, 0);
-	//PUT(heap_listp + WSIZE, 0);
 	PUT(heap_listp + WSIZE, PACK(POINTER_OVERHEAD + OVERHEAD, 1));  /* prologue header */
 	PUT_ADDRESS(heap_listp + DSIZE, NULL);     /* put root tree address*/
 		
@@ -137,57 +99,27 @@ int mm_init(void)
 		
 	heap_listp += DSIZE;
 
-	
-
-	/* Extend the empty heap with a free block of CHUNKSIZE bytes */
 	if ((bp = extend_heap(CHUNKSIZE / WSIZE)) == NULL)
 		return -1;
-
-// #ifdef checkheap
-// 	mm_checkheap(VERBOSE);
-// #endif // checkheap
-// 	//printf("\nmm_init out\n");
 	return 0;
 }
-/* $end mminit */
 
-
-/*
-* mm_malloc - Allocate a block with at least size bytes of payload
-*/
-/* $begin mmmalloc */
 void *mm_malloc(size_t size)
 {
-	//printf("\nmalloc in: malloc count: %d\n",malloc_call_count++);
-// #ifdef checkheap
-// 		mm_checkheap(VERBOSE);
-// #endif // checkheap
 	size_t asize;      /* adjusted block size */
 	size_t extendsize; /* amount to extend heap if no fit */
 	char *bp;
 
-	/* Ignore spurious requests */
 	if (size <= 0)
 		return NULL;
-
-	/* Adjust block size to include overhead and alignment reqs. */
 	if (size <= DSIZE + POINTER_OVERHEAD)
 		asize = DSIZE + OVERHEAD + POINTER_OVERHEAD;
 	else
 		asize = DSIZE * ((size +POINTER_OVERHEAD+(OVERHEAD)+(DSIZE - 1)) / DSIZE);
-
-	/* Search the red black tree for a fit */
 	if ((bp = find_fit_in_tree(asize)) != NULL) {
 		place(bp, asize);
-	//printf("\n malloc out check: return bp: %p\n",bp);
-// #ifdef checkheap
-// 		mm_checkheap(VERBOSE);
-// #endif // checkheap
 		return bp;
 	}
-
-	/* No fit found. Get more memory and place the block */
-	/* erase footer*/
 	extendsize = MAX(asize, CHUNKSIZE);
 
 	if ((bp = extend_heap(extendsize / WSIZE)) == NULL) {
@@ -197,44 +129,22 @@ void *mm_malloc(size_t size)
 
 	if ((bp = find_fit_in_tree(asize)) != NULL) {
 		place(bp, asize);
-	//printf("\n malloc out check: return bp: %p\n",bp);
-// #ifdef checkheap
-// 		mm_checkheap(VERBOSE);
-// #endif // checkheap
-		
 		return bp;
 	}
 
 }
-/* $end mmmalloc */
-
-/*
-* mm_free - Free a block
-*/
-/* $begin mmfree */
 void mm_free(void *bp)
 {
-	//printf("\nfree in: free count: %d\n",free_call_count++);
 	size_t size = GET_SIZE(HDRP(bp));
 
 	PUT(HDRP(bp), PACK(size, 0));
 	PUT(FTRP(bp), PACK(size, 0));
 
 	coalesce(bp);
-// #ifdef checkheap
-// 	mm_checkheap(VERBOSE);
-// #endif // checkheap
-
 }
 
-/* $end mmfree */
-
-/*
-* mm_realloc - naive implementation of mm_realloc
-*/
 void *mm_realloc(void *ptr, size_t size)
 {
-	
 	void *newp;
 	size_t copySize;
 	copySize = GET_SIZE(HDRP(ptr));
@@ -243,7 +153,6 @@ void *mm_realloc(void *ptr, size_t size)
 		printf("ERROR: mm_malloc failed in mm_realloc\n");
 		exit(1);
 	}
-	
 	if (size < copySize)
 		copySize = size;
 	memcpy(newp, ptr, copySize);
@@ -251,126 +160,40 @@ void *mm_realloc(void *ptr, size_t size)
 	return newp;
 }
 
-/*
-* mm_checkheap - Check the heap for consistency
-*/
-// void mm_checkheap(int verbose)
-// {
-// 	char *bp = heap_listp;
-
-// 	if (verbose)
-// 		printf("Heap (%p):\n", heap_listp);
-
-// 	if ((GET_SIZE(HDRP(heap_listp)) != 4 * DSIZE) || !GET_ALLOC(HDRP(heap_listp)))
-// 		printf("Bad prologue header, size=%d, alloc=%d\n", GET_SIZE(HDRP(heap_listp)), GET_ALLOC(HDRP(heap_listp)));
-// 	checkblock(heap_listp);
-// 	printblock(heap_listp);
-// 	printf("\nmemory:\n");
-// 	for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-// #ifdef printalloc
-// 	if(verbose)
-// 		printblock(bp);
-// #endif	
-// #ifndef printalloc	
-// 	if (verbose && !GET_ALLOC(HDRP(bp)))
-// 		printblock(bp);
-// #endif		
-		
-// 	checkblock(bp);
-// 	}
-
-// 	if (verbose)
-// 		printblock(bp);
-// 	if (GET_SIZE(HDRP(bp)) != 0 || !GET_ALLOC(HDRP(bp))){
-// 		printf("Bad epilogue header, size=%d, alloc=%d\n", GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
-// 		exit(2);	
-// 	}
-// }
-
-/* The remaining routines are internal helper routines */
-
-/*
-* extend_heap - Extend heap with free block and return its block pointer
-*/
-/* $begin mmextendheap */
 static void *extend_heap(size_t words)
 {
 	
 	char *bp;
 	size_t size;
-	//heap_end = mem_heap_hi();
-	//printf("\nextend_heap in\n");
-	
-	/* Allocate an even number of words to maintain alignment */
 	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
 	if ((bp = mem_sbrk(size)) == (void *)-1)
 		return NULL;
 
-	/* Initialize free block header/footer and the epilogue header */
 	PUT(HDRP(bp), PACK(size, 0));         /* free block header */
 	PUT(FTRP(bp), PACK(size, 0));         /* free block footer */
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* new epilogue header */
-
-										  //printf("\nextend_heap out\n");
-										  /* Coalesce if the previous block was free */
 	return coalesce(bp);
 
 }
-/* $end mmextendheap */
 
-/*
-* place - Place block of asize bytes at start of free block bp
-*         and split if reminder would be at least minimum block size
-*/
-/* $begin mmplace */
-/* $begin mmplace-proto */
 static void place(void *bp, size_t asize) {
-// #ifdef printre
-// 	printf("\nplace in: place size: %d, bp: %p\n",asize,bp);
-// #endif // printre	
-// #ifdef checkheap
-// 	mm_checkheap(VERBOSE);
-// #endif // checkheap
 	size_t csize = GET_SIZE(HDRP(bp));
 
 	if ((csize - asize) >= (DSIZE + POINTER_OVERHEAD + OVERHEAD)) {
-// #ifdef printre
-// 	printf("\nplace in case 1\n");
-// #endif // printre
-		//bp = NEXT_BLKP(bp);
 		PUT(HDRP(bp), PACK(asize+DSIZE, 1));
 		PUT(FTRP(bp), PACK(asize+DSIZE, 1));
-		//printf("\nplace in case 1: bp=%p\n",bp);
-		bp = NEXT_BLKP(bp);
-		//printf("\nplace in case 1: bp=%p\n",bp);		
+		bp = NEXT_BLKP(bp);		
 		
 		PUT(HDRP(bp), PACK(csize - asize-DSIZE, 0));
 		PUT(FTRP(bp), PACK(csize - asize-DSIZE, 0));
-		//printblock(bp);
-	//	printf("\nplace in case 1, insert bp: %p\n",bp);
-		
 		tree_insert(bp);
 	}
 	else {
 		PUT(HDRP(bp), PACK(csize, 1));
 		PUT(FTRP(bp), PACK(csize, 1));
 	}
-// #ifdef printre
-// 	printf("\nplace out\n");
-// #endif // printre
-// #ifdef checkheap
-// 	mm_checkheap(VERBOSE);
-// #endif // checkheap
 }
-/* $end mmplace */
 
-
-
-
-
-/*
-*
-*/
 static void *find_fit_in_tree(size_t asize)
 {
 	block_t* bp;
@@ -381,17 +204,13 @@ static void *find_fit_in_tree(size_t asize)
 			bp = RIGHT_BLK(bp);
 			continue;
 		}
-
 		if (GET_SIZE(HDRP(bp)) == asize) {
-	//		printf("\nfind_fit_in_tree in: case 2\n");
 			temp = bp;
 			tree_delete(temp);
-
 			return temp;
 		}
 
 		else {
-	//		printf("\nfind_fit_in_tree in: case 3\n");
 			temp = bp;
 			if (bp != NULL) {
 				bp = LEFT_BLK(bp);
@@ -404,62 +223,40 @@ static void *find_fit_in_tree(size_t asize)
 	}
 
 	if (temp != NULL){
-
 		tree_delete(temp);
 	}
-	return temp; /* no fit */
+	return temp; 
 
 }
 
-/*
-* coalesce - boundary tag coalescing. Return ptr to coalesced block
-*/
 static void *coalesce(void *bp)
 {
-	//printf("\ncoalesce in\n");
 	size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 	size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 	size_t size = GET_SIZE(HDRP(bp));
-#ifdef checkheap
-	mm_checkheap(VERBOSE);
-#endif // checkheap
 
 	if (prev_alloc&&next_alloc) {
 		tree_insert(bp);
 		return bp;
 	}
-
 	else if (prev_alloc && !next_alloc) {
-#ifdef printre
-	printf("\ncoalesece case 2 in\n");
-#endif // printre
 		tree_delete(NEXT_BLKP(bp));
 		size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
 		PUT(HDRP(bp), PACK(size, 0));
 		PUT(FTRP(bp), PACK(size, 0));
 		tree_insert(bp);
-#ifdef printre
-	printf("\ncoalesece case 2 out\n");
-#endif // printre
+
 	}
 	else if (!prev_alloc && next_alloc) {
-#ifdef printre
-		printf("\ncoalesece case 3 in\n");
-#endif // printre
 		tree_delete(PREV_BLKP(bp));
 		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
 		PUT(FTRP(bp), PACK(size, 0));
 		PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
 		bp = PREV_BLKP(bp);
 		tree_insert(bp);
-#ifdef printre
-	printf("\ncoalesece case 3 out\n");
-#endif // printre
+
 	}
 	else {
-#ifdef printre
-	printf("\ncoalesece case 4 in\n");
-#endif // printre	
 		tree_delete(NEXT_BLKP(bp));
 		tree_delete(PREV_BLKP(bp));
 		size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
@@ -467,22 +264,11 @@ static void *coalesce(void *bp)
 		PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
 		bp = PREV_BLKP(bp);
 		tree_insert(bp);
-#ifdef printre
-	printf("\ncoalesece case 4 out\n");
-#endif // printre	
+
 	}
 	return bp;
 }
 
-/*
-* red black tree part begin
-*/
-
-
-/*
-* tree insert
-* bp is free block pointer.
-*/
 static void tree_insert(block_t* bp) {
 	PUT(HDRP(bp), PACK(GET_SIZE_ALLOC(HDRP(bp)), RED << 1));
 	PUT(FTRP(bp), PACK(GET_SIZE_ALLOC(FTRP(bp)), RED << 1));
@@ -494,13 +280,11 @@ static void tree_insert(block_t* bp) {
 	while ((x) != NULL) {
 
 		y = x;
-		//	printf("\n in while: y=%p,x=%p,x left=%p,x right=%p\n", (char*)y, (char*)x, (char*)LEFT_BLK(x), (char*)LEFT_BLK(x));
 		if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(x)))
 			x = LEFT_BLK(x);
 		else
 			x = RIGHT_BLK(x);
 	}
-	//printf("\nout of while: x=%p, bp=%p, y=%p\n",(char*)x,(char*)bp,(char*)y);
 
 	PARENT_BLK(bp) = y;
 	if (y == NULL) {
@@ -508,7 +292,6 @@ static void tree_insert(block_t* bp) {
 		PUT_ADDRESS(heap_listp, bp);
 	}
 	else {
-		//	printf("\ny left=%p, y right=%p, bp=%p\n", LEFT_BLKP(y), RIGHT_BLKP(y), bp);
 		if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(y)))
 			PUT_ADDRESS(LEFT_BLKP(y), bp);
 		else
@@ -519,7 +302,6 @@ static void tree_insert(block_t* bp) {
 	PUT_ADDRESS(RIGHT_BLKP(bp), 0);
 	PUT(HDRP(bp), PACK(GET_SIZE_ALLOC(HDRP(bp)), RED << 1));
 	PUT(FTRP(bp), PACK(GET_SIZE_ALLOC(FTRP(bp)), RED << 1));
-	//pt();
 	insert_fixup(bp);
 	return;
 }
@@ -563,15 +345,9 @@ static void tree_delete(block_t *z) {
 		PUT(HDRP(y), PACK(GET_SIZE_ALLOC(HDRP(y)), IS_RED(z) << 1));
 		PUT(FTRP(y), PACK(GET_SIZE_ALLOC(FTRP(y)), IS_RED(z) << 1));
 	}
-	//printf("\ndelete out\n");
 
 	if (yoc == BLACK) {
-		//printf("\ndelete fixup\n");
-
-		//pt();
-		//printf("\ndelete fix up in. x=%p\n", (char*)x);
 		delete_fixup(x, par);
-
 	}
 	return;
 }
@@ -626,24 +402,15 @@ static void transplant(block_t* u, block_t* v) {
 
 	}
 	else if (u == LEFT_BLK(PARENT_BLK(u))) {
-		//printf("\ntransplant case 2: left=%p,*v=%p\n", (char*)*(LEFT_BLKP(PARENT_BLKP(u))), (char*)*v);
 		PUT_ADDRESS((LEFT_BLKP(PARENT_BLK(u))), v);
-
 	}
 	else {
-		//printf("\ntransplant case 3:\n");
 		PUT_ADDRESS((RIGHT_BLKP(PARENT_BLK(u))), v);
 
-		//printblock(v,1);
 	}
 	if (v != NULL) {
-		//printf("\nbreak point 1: target=%p,v parent=%p\n", (char*)*u, (char*)(*(char*)(PARENT_BLKP(v))));
-		//pt();
 		PUT_ADDRESS(PARENT_BLKP(v), PARENT_BLK(u));
-		//pt();
-	}
-
-	//printf("\ntransplant out\n");
+    }
 
 	return;
 }
@@ -800,30 +567,3 @@ static void insert_fixup(block_t* bp) {
 	PUT(FTRP(PARENT_BLK(heap_listp)), PACK(GET_SIZE_ALLOC(FTRP(PARENT_BLK((heap_listp)))), BLACK << 1));
 	return;
 }
-
-// static void printblock(void *bp)
-// {
-// 	size_t hsize, halloc, fsize, falloc;
-
-// 	hsize = GET_SIZE(HDRP(bp));
-// 	halloc = GET_ALLOC(HDRP(bp));
-// 	fsize = GET_SIZE(FTRP(bp));
-// 	falloc = GET_ALLOC(FTRP(bp));
-
-// 	if (hsize == 0) {
-// 		printf("%p: EOL\n", bp);
-// 		return;
-// 	}
-
-// 	printf("%p: header: [%d:%c] footer: [%d:%c] color: %d, prev: %p, next: %p, parent: %p, left: %p, right: %p\n", bp,
-// 	hsize, (halloc ? 'a' : 'f'),
-// 	fsize, (falloc ? 'a' : 'f'), IS_RED(bp), (char*)PREV_BLKP(bp), (char*)NEXT_BLKP(bp), (char*)PARENT_BLK(bp), (char*)LEFT_BLK(bp), (char*)RIGHT_BLK(bp));
-// }
-
-// static void checkblock(void *bp)
-// {
-// 	if ((size_t)bp % 8)
-// 		printf("Error: %p is not doubleword aligned\n", bp);
-// 	if (GET_SIZE_ALLOC(HDRP(bp)) != GET_SIZE_ALLOC(FTRP(bp)))
-// 		printf("Error: header does not match footer: header:%x, footer:%x\n", GET(HDRP(bp)), GET(FTRP(bp)));
-// }
